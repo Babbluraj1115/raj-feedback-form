@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Peer Feedback — Raj Kumar | React Doc Viewer</title>
+
+<!-- ============================================================
+  CONFIGURATION — fill these 3 values before hosting
+  
+  SHAREPOINT_SITE_ID  : your SharePoint site ID
+                        Get it from: https://[tenant].sharepoint.com/sites/[site]/_api/site/id
+                        Or ask your IT admin for the site GUID
+                        
+  SHAREPOINT_LIST_ID  : the ID of the RajKumarFeedback list
+                        Get it from: SharePoint list → Settings → List settings
+                        The GUID is in the URL: ...lists/[THIS-GUID]/...
+                        
+  TENANT_NAME         : your org's tenant e.g. 'brainspace' from brainspace.sharepoint.com
+
+  HOW IT WORKS:
+  - Reviewer opens form (must be signed into M365 in browser — all org members are)
+  - Fills in ratings and submits
+  - HTML silently posts to SharePoint list via Microsoft Graph API
+  - Power Automate "When an item is created" trigger fires automatically
+  - Manager receives email, response logged to SharePoint
+  - No external services, no signups, fully within your org
+============================================================ -->
+<script>
+  var TENANT_NAME        = 'revealdata';           // e.g. 'brainspace' from brainspace.sharepoint.com
+  var SHAREPOINT_SITE_ID = '62d8bccd-dfa1-4c7f-90c3-8bf185754b0c';         // GUID e.g. 'a1b2c3d4-...'
+  var SHAREPOINT_LIST_ID = 'b1625d69-74e2-4c6f-b078-2dd07fb3df64';         // GUID e.g. 'e5f6g7h8-...'
+  var MANAGER_EMAIL = 'rgolla@revealdata.com;MANAGER2@revealdata.com'; // UPDATE: both manager emails separated by semicolon
+  var CC_EMAILS     = 'raj.kumar@revealdata.com';              // UPDATE: your own work email for CC
+</script>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{min-height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+body{background:#cdd8e8}
+.geo-bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.geo-bg svg{width:100%;height:100%;position:absolute;inset:0}
+@keyframes floatA{0%,100%{transform:translateY(0px) rotate(0deg)}50%{transform:translateY(-28px) rotate(2.5deg)}}
+@keyframes floatB{0%,100%{transform:translateY(0px) rotate(0deg)}50%{transform:translateY(22px) rotate(-2deg)}}
+@keyframes floatC{0%,100%{transform:translateX(0px) rotate(0deg)}50%{transform:translateX(20px) rotate(1.5deg)}}
+@keyframes floatD{0%,100%{transform:translate(0,0) rotate(0deg)}50%{transform:translate(-16px,14px) rotate(1.2deg)}}
+@keyframes shimmer{0%,100%{opacity:0.45}50%{opacity:0.8}}
+@keyframes shimmer2{0%,100%{opacity:0.28}50%{opacity:0.65}}
+@keyframes floatE{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(12px,-18px) scale(1.04)}}
+.p1{animation:floatA 4s ease-in-out infinite}
+.p2{animation:floatB 5s ease-in-out infinite}
+.p3{animation:floatC 4.5s ease-in-out infinite}
+.p4{animation:floatD 3.8s ease-in-out infinite}
+.p5{animation:floatA 5.5s ease-in-out infinite 0.8s}
+.p6{animation:floatB 4.2s ease-in-out infinite 0.4s}
+.p7{animation:shimmer 3s ease-in-out infinite}
+.p8{animation:shimmer2 4s ease-in-out infinite 1s}
+.p9{animation:floatE 4.8s ease-in-out infinite 0.6s}
+.p10{animation:floatC 3.5s ease-in-out infinite 1.2s}
+.fb-page{position:relative;z-index:1;padding:2rem 1rem 4rem;min-height:100vh}
+.fb-wrap{max-width:640px;margin:0 auto}
+.card{background:#fff;border-radius:16px;padding:1.75rem 2rem;margin-bottom:12px;box-shadow:0 2px 16px rgba(30,60,120,0.10);position:relative;overflow:hidden}
+.card-geo{position:absolute;top:0;right:0;width:180px;height:120px;pointer-events:none}
+.sec-card{background:#fff;border-radius:14px;padding:1.25rem 1.5rem;margin-bottom:10px;border:1px solid #e4e8f0;box-shadow:0 1px 4px rgba(30,60,120,0.05);transition:border-color 0.25s,box-shadow 0.25s;position:relative;overflow:hidden}
+.sec-card.rated{border-color:#c5baf9;box-shadow:0 2px 10px rgba(123,108,246,0.12)}
+.sec-card-geo{position:absolute;top:0;right:0;width:100px;height:70px;pointer-events:none}
+.hero-badge{display:inline-flex;align-items:center;gap:6px;background:#eef2fb;border:1px solid #c5d0ee;border-radius:20px;padding:4px 12px;font-size:11px;font-weight:600;color:#3a5ca8;margin-bottom:.85rem;letter-spacing:0.04em}
+.hero-title{font-size:22px;font-weight:700;color:#1a2744;margin-bottom:6px;line-height:1.3}
+.hero-sub{font-size:13px;color:#6b7a99;line-height:1.6;margin-bottom:1rem}
+.hero-meta{display:flex;gap:16px;flex-wrap:wrap}
+.hero-chip{font-size:11px;color:#8895b3;display:flex;align-items:center;gap:4px}
+.progress-track{height:4px;background:#e4e8f0;border-radius:2px;margin-top:1rem;overflow:hidden}
+.progress-fill{height:100%;background:linear-gradient(90deg,#7b6cf6,#4f8ef7);border-radius:2px;transition:width 0.4s cubic-bezier(.4,0,.2,1);width:0%}
+.section-label{font-size:11px;font-weight:700;color:#8895b3;letter-spacing:0.07em;text-transform:uppercase;display:flex;align-items:center;gap:8px;margin-bottom:1rem}
+.section-label::after{content:'';flex:1;height:0.5px;background:#e4e8f0}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px}
+.field-group{display:flex;flex-direction:column;gap:4px}
+.fl{font-size:11px;font-weight:700;color:#8895b3;text-transform:uppercase;letter-spacing:0.05em}
+.req{color:#b33a5c}
+.fi{font-size:13px;border:1px solid #dde2ee;border-radius:8px;padding:9px 12px;background:#f8f9fc;color:#1a2744;width:100%;outline:none;transition:border-color 0.15s}
+.fi:focus{border-color:#7b6cf6;background:#fff}
+.fs{font-size:13px;border:1px solid #dde2ee;border-radius:8px;padding:9px 12px;background:#f8f9fc;color:#1a2744;width:100%;outline:none;appearance:none;cursor:pointer;transition:border-color 0.15s}
+.fs:focus{border-color:#7b6cf6}
+.ff{font-size:13px;padding:9px 12px;background:#f0f3fa;border:1px solid #dde2ee;border-radius:8px;color:#8895b3;display:flex;align-items:center;gap:6px}
+.sec-header{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.sec-num{min-width:24px;height:24px;border-radius:7px;background:#f0f3fa;border:1px solid #dde2ee;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#8895b3;transition:all 0.2s;flex-shrink:0}
+.sec-num.done{background:#7b6cf6;border-color:#7b6cf6;color:#fff}
+.sec-tag{font-size:10px;font-weight:700;color:#8895b3;text-transform:uppercase;letter-spacing:0.07em}
+.sec-q{font-size:14px;font-weight:600;color:#1a2744;line-height:1.55;margin-bottom:1rem}
+.stars-row{display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+.star-btn{width:50px;height:50px;border:1.5px solid #dde2ee;background:#f8f9fc;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;transition:all 0.15s;border-radius:10px;flex-shrink:0}
+.star-btn:hover{transform:scale(1.18);border-color:#F59E0B;background:#fffbeb}
+.star-btn:active{transform:scale(0.88)}
+.star-btn.lit{background:#fffbeb;border-color:#F59E0B}
+.star-svg{width:28px;height:28px;transition:filter 0.2s}
+.star-path{fill:#dde2ee;transition:fill 0.18s}
+.star-btn.lit .star-path{fill:#F59E0B}
+.star-btn.lit .star-svg{filter:drop-shadow(0 0 4px rgba(245,158,11,0.6))}
+.rlabel{display:inline-block;font-size:12px;font-weight:600;padding:3px 12px;border-radius:20px;background:#fef3c7;color:#92400e;opacity:0;transform:translateY(3px);transition:all 0.2s;margin-left:4px}
+.rlabel.show{opacity:1;transform:translateY(0)}
+.mood-row{display:flex;align-items:center;gap:8px;min-height:28px;margin-bottom:6px}
+.mood-e{font-size:22px;opacity:0;transform:scale(0.3);transition:all 0.3s;display:inline-block}
+.mood-e.show{opacity:1;transform:scale(1)}
+.mood-t{font-size:12px;color:#6b7a99;opacity:0;transition:opacity 0.3s}
+.mood-t.show{opacity:1}
+.ctog{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:#8895b3;cursor:pointer;border:none;background:none;padding:0;transition:color 0.15s;font-family:inherit}
+.ctog:hover{color:#6b7a99}
+.carea{width:100%;font-size:13px;border:1px solid #dde2ee;border-radius:8px;padding:8px 12px;background:#f8f9fc;color:#1a2744;resize:none;min-height:56px;margin-top:8px;display:none;outline:none;transition:border-color 0.15s;font-family:inherit}
+.carea:focus{border-color:#7b6cf6}
+.divider-wrap{display:flex;align-items:center;gap:10px;margin:1.25rem 0 .75rem}
+.divider-wrap span{font-size:11px;font-weight:700;color:#8895b3;text-transform:uppercase;letter-spacing:0.07em;white-space:nowrap}
+.divider-wrap::before,.divider-wrap::after{content:'';flex:1;height:1px;background:#e4e8f0}
+.overall-card{background:#fff;border-radius:14px;padding:1.5rem 1.5rem 1.25rem;margin-bottom:10px;border:1px solid #e4e8f0;box-shadow:0 1px 4px rgba(30,60,120,0.05);position:relative;overflow:hidden}
+.overall-q{font-size:14px;font-weight:600;color:#1a2744;line-height:1.55;margin-bottom:1.25rem;text-align:center;padding:0 0.5rem}
+.overall-stars{display:flex;justify-content:center;gap:10px;margin-bottom:10px}
+.o-star{width:54px;height:54px;border:1.5px solid #dde2ee;background:#f8f9fc;cursor:pointer;padding:0;transition:all 0.15s;border-radius:12px;display:flex;align-items:center;justify-content:center}
+.o-star:hover{transform:scale(1.18);border-color:#F59E0B;background:#fffbeb}
+.o-star:active{transform:scale(0.88)}
+.o-star.lit{background:#fffbeb;border-color:#F59E0B}
+.o-svg{width:32px;height:32px;transition:filter 0.2s}
+.o-path{fill:#dde2ee;transition:fill 0.18s}
+.o-star.lit .o-path{fill:#F59E0B}
+.o-star.lit .o-svg{filter:drop-shadow(0 0 5px rgba(245,158,11,0.6))}
+.omood{text-align:center;font-size:26px;min-height:34px;opacity:0;transform:scale(0.3);transition:all 0.3s;display:block}
+.omood.show{opacity:1;transform:scale(1)}
+.hcard{background:#fff;border-radius:14px;padding:1.35rem 1.5rem;margin-bottom:10px;border:1px solid #e4e8f0;box-shadow:0 1px 4px rgba(30,60,120,0.05)}
+.hcard textarea{width:100%;font-size:13px;border:1px solid #dde2ee;border-radius:8px;padding:9px 12px;background:#f8f9fc;color:#1a2744;resize:none;min-height:72px;outline:none;font-family:inherit;transition:border-color 0.15s}
+.hcard textarea:focus{border-color:#7b6cf6}
+.cc{font-size:11px;color:#8895b3;text-align:right;margin-top:4px}
+.submit-area{display:flex;justify-content:space-between;align-items:center;margin-top:1.25rem;gap:12px}
+.btn-clear{font-size:13px;color:#8895b3;border:1px solid #dde2ee;background:#fff;border-radius:8px;padding:10px 20px;cursor:pointer;transition:all 0.15s;font-family:inherit}
+.btn-clear:hover{border-color:#b0b8cc;color:#6b7a99;background:#f8f9fc}
+.btn-submit{font-size:14px;font-weight:700;color:#fff;background:linear-gradient(135deg,#7b6cf6 0%,#4f8ef7 100%);border:none;border-radius:10px;padding:11px 28px;cursor:pointer;display:flex;align-items:center;gap:8px;letter-spacing:0.02em;transition:opacity 0.15s;font-family:inherit}
+.btn-submit:hover{opacity:0.88}
+.btn-submit:active{transform:scale(0.97)}
+.btn-submit:disabled{opacity:0.6;cursor:not-allowed}
+.sending-overlay{display:none;position:fixed;inset:0;z-index:100;background:rgba(20,35,70,0.55);align-items:center;justify-content:center}
+.sending-overlay.show{display:flex}
+.sending-box{background:#fff;border-radius:16px;padding:2rem 2.5rem;text-align:center;box-shadow:0 8px 40px rgba(30,60,120,0.18);max-width:320px;width:90%}
+.sending-spinner{width:40px;height:40px;border:3px solid #e4e8f0;border-top-color:#7b6cf6;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 1rem}
+@keyframes spin{to{transform:rotate(360deg)}}
+.sending-box p{font-size:14px;font-weight:600;color:#1a2744;margin-bottom:4px}
+.sending-box span{font-size:12px;color:#8895b3}
+.sv{display:none;padding:1rem 0 2rem}
+.shero{background:#fff;border-radius:16px;padding:2rem;text-align:center;margin-bottom:1rem;box-shadow:0 2px 16px rgba(30,60,120,0.10)}
+.sicon{width:60px;height:60px;border-radius:50%;background:linear-gradient(135deg,#7b6cf6,#4f8ef7);display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;font-size:26px;color:#fff;font-weight:700}
+.smgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:1rem}
+.smbox{background:#f8f9fc;border-radius:10px;padding:1rem;text-align:center;border:1px solid #e4e8f0}
+.smval{font-size:26px;font-weight:700;color:#1a2744}
+.smlbl{font-size:11px;color:#8895b3;margin-bottom:4px}
+.srows{background:#fff;border-radius:14px;overflow:hidden;border:1px solid #e4e8f0;box-shadow:0 1px 4px rgba(30,60,120,0.05);margin-bottom:1rem}
+.srow{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #f0f3fa}
+.srow:last-child{border-bottom:none}
+.squote{background:#f8f9fc;border-radius:10px;padding:12px 14px;margin-bottom:1rem;font-size:13px;color:#6b7a99;font-style:italic;border-left:3px solid #7b6cf6}
+.email-confirm{background:#eef7ee;border:1px solid #b6ddb6;border-radius:10px;padding:12px 16px;display:flex;align-items:flex-start;gap:10px;margin-bottom:1rem}
+.email-fallback{background:#fef3c7;border:1px solid #f6c843;border-radius:10px;padding:12px 16px;display:flex;align-items:flex-start;gap:10px;margin-bottom:1rem}
+.btn-again{display:block;margin:0 auto;font-size:13px;color:#7b6cf6;border:1px solid #7b6cf6;background:#fff;border-radius:8px;padding:10px 24px;cursor:pointer;transition:all 0.15s;font-family:inherit}
+.btn-again:hover{background:#7b6cf6;color:#fff}
+@keyframes popIn{0%{transform:scale(0.3);opacity:0}65%{transform:scale(1.3)}100%{transform:scale(1);opacity:1}}
+.pop{animation:popIn 0.35s cubic-bezier(.4,0,.2,1) forwards}
+</style>
+</head>
+<body>
+
+<div class="geo-bg">
+  <svg viewBox="0 0 1200 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="900" fill="#cdd8e8"/>
+    <g class="p1"><polygon points="0,0 480,0 260,900 0,900" fill="#a8c0d8" opacity="0.65"/></g>
+    <g class="p2"><polygon points="0,0 340,0 160,900 0,650" fill="#92b0cc" opacity="0.55"/></g>
+    <g class="p3"><polygon points="480,0 1200,0 1200,320 680,900 260,900" fill="#8aaec8" opacity="0.5"/></g>
+    <g class="p4"><polygon points="820,0 1200,0 1200,520" fill="#6e98bc" opacity="0.5"/></g>
+    <g class="p5"><polygon points="920,0 1200,0 1200,220" fill="#5886b0" opacity="0.4"/></g>
+    <g class="p6"><polygon points="0,560 280,900 0,900" fill="#7aaac0" opacity="0.5"/></g>
+    <g class="p7"><polygon points="580,350 920,160 1200,480 980,820 620,820" fill="#70c0c0" opacity="0.32"/></g>
+    <g class="p8"><polygon points="680,260 1080,80 1200,380 940,680" fill="#5ab5b5" opacity="0.28"/></g>
+    <g class="p9"><polygon points="0,220 230,0 480,280 200,580" fill="#88b4d0" opacity="0.3"/></g>
+    <g class="p10"><polygon points="280,0 580,0 380,420 80,300" fill="#a0c0e0" opacity="0.22"/></g>
+  </svg>
+</div>
+
+<div class="sending-overlay" id="sending-overlay">
+  <div class="sending-box">
+    <div class="sending-spinner"></div>
+    <p>Submitting feedback...</p>
+    <span>Saving to SharePoint &amp; notifying manager</span>
+  </div>
+</div>
+
+<div class="fb-page">
+  <div class="fb-wrap" id="form-view">
+
+    <div class="card">
+      <svg class="card-geo" viewBox="0 0 180 120" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="60,0 180,0 180,120 140,60" fill="#dde8f5" opacity="0.7"/>
+        <polygon points="110,0 180,0 180,70" fill="#c8d8ee" opacity="0.5"/>
+        <polygon points="140,40 180,10 180,90" fill="#b8cce8" opacity="0.4"/>
+      </svg>
+      <div class="hero-badge">&#9733; Peer Feedback</div>
+      <div class="hero-title">Share your experience working with Raj Kumar</div>
+      <div class="hero-sub">Your input helps build a clearer picture of quality contributions across teams — especially where direct manager visibility is limited. Takes about 2 minutes.</div>
+      <div class="hero-meta">
+        <div class="hero-chip">&#10003; 10 sections</div>
+        <div class="hero-chip">&#128338; ~2 min</div>
+        <div class="hero-chip">&#128274; Confidential</div>
+      </div>
+      <div class="progress-track"><div class="progress-fill" id="prog"></div></div>
+    </div>
+
+    <div class="card">
+      <svg class="card-geo" viewBox="0 0 180 120" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="90,0 180,0 180,120" fill="#dde8f5" opacity="0.6"/>
+        <polygon points="130,0 180,0 180,60" fill="#c8d8ee" opacity="0.45"/>
+      </svg>
+      <div class="section-label">About you</div>
+      <div class="field-row">
+        <div class="field-group">
+          <label class="fl" for="rev-name">Your name <span class="req">*</span></label>
+          <input class="fi" id="rev-name" type="text" placeholder="e.g. Ian Downie" autocomplete="name">
+        </div>
+        <div class="field-group">
+          <label class="fl" for="rev-role">Your role</label>
+          <select class="fs" id="rev-role">
+            <option value="" disabled selected>Select role</option>
+            <option>Lead</option>
+            <option>Developer</option>
+            <option>QA</option>
+            <option>Product</option>
+            <option>Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="field-group">
+        <label class="fl">Collaboration context</label>
+        <div class="ff">&#128274; React Doc Viewer</div>
+      </div>
+    </div>
+
+    <div id="sections-container"></div>
+
+    <div class="divider-wrap"><span>Overall Rating</span></div>
+
+    <div class="overall-card">
+      <svg class="card-geo" viewBox="0 0 180 120" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="80,0 180,0 180,120 150,50" fill="#dde8f5" opacity="0.6"/>
+        <polygon points="120,0 180,0 180,65" fill="#c8d8ee" opacity="0.4"/>
+      </svg>
+      <div class="overall-q">"Overall, how would you rate Raj's contribution to the team's quality goals during your collaboration?"</div>
+      <div class="overall-stars" id="overall-stars">
+        <button class="o-star" data-v="1" type="button"><svg class="o-svg" viewBox="0 0 32 32"><path class="o-path" d="M16 1.5l4 8.1 9 1.3-6.5 6.3 1.5 9L16 21.6l-8 4.6 1.5-9L3 9.9l9-1.3z"/></svg></button>
+        <button class="o-star" data-v="2" type="button"><svg class="o-svg" viewBox="0 0 32 32"><path class="o-path" d="M16 1.5l4 8.1 9 1.3-6.5 6.3 1.5 9L16 21.6l-8 4.6 1.5-9L3 9.9l9-1.3z"/></svg></button>
+        <button class="o-star" data-v="3" type="button"><svg class="o-svg" viewBox="0 0 32 32"><path class="o-path" d="M16 1.5l4 8.1 9 1.3-6.5 6.3 1.5 9L16 21.6l-8 4.6 1.5-9L3 9.9l9-1.3z"/></svg></button>
+        <button class="o-star" data-v="4" type="button"><svg class="o-svg" viewBox="0 0 32 32"><path class="o-path" d="M16 1.5l4 8.1 9 1.3-6.5 6.3 1.5 9L16 21.6l-8 4.6 1.5-9L3 9.9l9-1.3z"/></svg></button>
+        <button class="o-star" data-v="5" type="button"><svg class="o-svg" viewBox="0 0 32 32"><path class="o-path" d="M16 1.5l4 8.1 9 1.3-6.5 6.3 1.5 9L16 21.6l-8 4.6 1.5-9L3 9.9l9-1.3z"/></svg></button>
+      </div>
+      <div class="omood" id="omood"></div>
+    </div>
+
+    <div class="hcard">
+      <div class="fl" style="margin-bottom:6px">Anything specific worth highlighting? <span style="color:#8895b3;text-transform:none;font-size:11px;font-weight:400">(optional &middot; 250 chars max)</span></div>
+      <textarea id="highlight-text" rows="3" maxlength="250" placeholder="e.g. Caught a critical edge case in the API layer that we would have missed before release..."></textarea>
+      <div class="cc"><span id="char-left">250</span> characters remaining</div>
+    </div>
+
+    <div class="submit-area">
+      <button class="btn-clear" type="button" id="reset-btn">&#10005; Clear form</button>
+      <button class="btn-submit" type="button" id="submit-btn">&#9993; Submit feedback</button>
+    </div>
+
+  </div>
+
+  <div class="sv" id="success-view">
+    <div class="shero">
+      <div class="sicon">&#10003;</div>
+      <div style="font-size:20px;font-weight:700;color:#1a2744;margin-bottom:6px">Feedback submitted</div>
+      <div style="font-size:13px;color:#6b7a99;margin-bottom:1.25rem">Thank you — your input helps Raj's manager see contributions that are hard to observe directly.</div>
+      <div class="email-confirm" id="confirm-sp" style="display:none">
+        <span style="font-size:18px;flex-shrink:0">&#9989;</span>
+        <p style="font-size:13px;color:#1a5c1a;line-height:1.5"><strong>Saved to SharePoint.</strong> Power Automate will now automatically email Raj's manager with your full feedback. No further action needed from you.</p>
+      </div>
+      <div class="email-fallback" id="confirm-fallback" style="display:none">
+        <span style="font-size:18px;flex-shrink:0">&#128231;</span>
+        <p style="font-size:13px;color:#854f0b;line-height:1.5"><strong>Outlook opened as backup.</strong> SharePoint save encountered an issue. Your feedback has been prepared in Outlook — please click Send to ensure your manager receives it.</p>
+      </div>
+    </div>
+    <div class="smgrid" id="sum-metrics"></div>
+    <div class="srows" id="sum-rows"></div>
+    <div id="sum-quote"></div>
+    <button class="btn-again" type="button" id="new-btn">Submit another response</button>
+  </div>
+
+</div>
+
+<script>
+var SECTIONS = [
+  {id:'s1', num:1,  tag:'Defect Reporting Quality',         q:"Are Raj's bug reports clear, accurate, and immediately actionable for the team?"},
+  {id:'s2', num:2,  tag:'Product & Functional Knowledge',   q:"How confident are you in Raj's understanding of the product and business flows?"},
+  {id:'s3', num:3,  tag:'Task Ownership & Timeliness',      q:"Can Raj be trusted to own a feature from testing start to release?"},
+  {id:'s4', num:4,  tag:'Collaboration with Team Members',  q:"How effectively does Raj collaborate with team members during issue discussions and feature work?"},
+  {id:'s5', num:5,  tag:'Product Team Communication',       q:"How valuable are Raj's inputs during requirement grooming and feature discussions?"},
+  {id:'s6', num:6,  tag:'Test Coverage & Critical Thinking',q:"Does Raj think like an end user and proactively identify risks before release?"},
+  {id:'s7', num:7,  tag:'Release Readiness',                q:"How much confidence do you have in a release that Raj has signed off on?"},
+  {id:'s8', num:8,  tag:'Team Collaboration',               q:"How effective is Raj as a team player — supporting others and contributing to team health?"},
+  {id:'s9', num:9,  tag:'Process Improvements',             q:"Has Raj suggested or driven any improvements to the shared process, quality, or documentation during your collaboration?"},
+  {id:'s10',num:10, tag:'Professionalism & Reliability',    q:"Does Raj show up prepared, own his work, and handle feedback well?"}
+];
+var RLABELS = ['1 — Unsatisfactory','2 — Needs Improvement','3 — Meets Expectation','4 — Strong','5 — Exceptional'];
+var MOODS   = ['😕','😐','🙂','😊','🤩'];
+var MTEXTS  = ['Needs improvement','Developing','Good','Great','Exceptional'];
+var ratings = {};
+var overallRating = 0;
+
+function buildSections() {
+  var c = document.getElementById('sections-container');
+  SECTIONS.forEach(function(s) {
+    var d = document.createElement('div');
+    d.className = 'sec-card'; d.id = 'card-' + s.id;
+    var stars = '';
+    for (var v = 1; v <= 5; v++) {
+      stars += '<button class="star-btn" data-sec="' + s.id + '" data-v="' + v + '" type="button">'
+             + '<svg class="star-svg" viewBox="0 0 28 28"><path class="star-path" d="M14 1.5l3.5 7.1 7.8 1.1-5.6 5.5 1.3 7.8L14 19.4l-7 3.6 1.3-7.8L2.7 9.7l7.8-1.1z"/></svg>'
+             + '</button>';
+    }
+    d.innerHTML = '<svg class="sec-card-geo" viewBox="0 0 100 70" xmlns="http://www.w3.org/2000/svg">'
+      + '<polygon points="30,0 100,0 100,70 80,30" fill="#dde8f5" opacity="0.55"/>'
+      + '<polygon points="65,0 100,0 100,40" fill="#c8d8ee" opacity="0.4"/></svg>'
+      + '<div class="sec-header"><div class="sec-num" id="num-' + s.id + '">' + s.num + '</div>'
+      + '<span class="sec-tag">' + s.tag + '</span></div>'
+      + '<div class="sec-q">"' + s.q + '"</div>'
+      + '<div class="stars-row" id="stars-' + s.id + '">' + stars
+      + '<span class="rlabel" id="rl-' + s.id + '"></span></div>'
+      + '<div class="mood-row"><span class="mood-e" id="me-' + s.id + '"></span>'
+      + '<span class="mood-t" id="mt-' + s.id + '"></span></div>'
+      + '<button class="ctog" type="button" data-sec="' + s.id + '">+ Add a comment</button>'
+      + '<textarea class="carea" id="ca-' + s.id + '" placeholder="Optional context..." maxlength="300"></textarea>';
+    c.appendChild(d);
+  });
+}
+
+function setStars(secId, val) {
+  var btns = document.getElementById('stars-' + secId).querySelectorAll('.star-btn');
+  for (var i = 0; i < btns.length; i++) {
+    var bv = parseInt(btns[i].dataset.v), wasLit = btns[i].classList.contains('lit');
+    if (bv <= val) {
+      btns[i].classList.add('lit');
+      if (!wasLit) { (function(b) { b.style.transform='scale(1.3)'; setTimeout(function(){b.style.transform='';},180); })(btns[i]); }
+    } else { btns[i].classList.remove('lit'); }
+  }
+  var rl = document.getElementById('rl-' + secId);
+  rl.textContent = RLABELS[val-1]; rl.classList.add('show');
+  var me = document.getElementById('me-' + secId), mt = document.getElementById('mt-' + secId);
+  me.textContent = MOODS[val-1]; mt.textContent = MTEXTS[val-1];
+  me.classList.remove('show','pop'); mt.classList.remove('show');
+  void me.offsetWidth; me.classList.add('show','pop'); mt.classList.add('show');
+  ratings[secId] = val;
+  var n = document.getElementById('num-' + secId); n.classList.add('done'); n.textContent = '✓';
+  document.getElementById('card-' + secId).classList.add('rated');
+  updateProgress();
+}
+
+function setOverall(val) {
+  overallRating = val;
+  var btns = document.getElementById('overall-stars').querySelectorAll('.o-star');
+  for (var i = 0; i < btns.length; i++) {
+    var bv = parseInt(btns[i].dataset.v), wasLit = btns[i].classList.contains('lit');
+    if (bv <= val) {
+      btns[i].classList.add('lit');
+      if (!wasLit) { (function(b) { b.style.transform='scale(1.3)'; setTimeout(function(){b.style.transform='';},200); })(btns[i]); }
+    } else { btns[i].classList.remove('lit'); }
+  }
+  var om = document.getElementById('omood');
+  om.textContent = MOODS[val-1]; om.classList.remove('show','pop'); void om.offsetWidth; om.classList.add('show','pop');
+  updateProgress();
+}
+
+function updateProgress() {
+  var done = Object.keys(ratings).length + (overallRating > 0 ? 1 : 0);
+  document.getElementById('prog').style.width = Math.round(done/11*100) + '%';
+}
+
+document.getElementById('sections-container').addEventListener('click', function(e) {
+  var sb = e.target.closest('.star-btn');
+  if (sb) { setStars(sb.dataset.sec, parseInt(sb.dataset.v)); return; }
+  var tog = e.target.closest('.ctog');
+  if (tog) {
+    var ca = document.getElementById('ca-' + tog.dataset.sec);
+    ca.style.display = (ca.style.display === 'block') ? 'none' : 'block';
+    if (ca.style.display === 'block') ca.focus();
+  }
+});
+
+document.getElementById('overall-stars').addEventListener('click', function(e) {
+  var b = e.target.closest('.o-star');
+  if (b) setOverall(parseInt(b.dataset.v));
+});
+
+var hl = document.getElementById('highlight-text');
+hl.addEventListener('input', function() { document.getElementById('char-left').textContent = 250 - hl.value.length; });
+document.getElementById('rev-name').addEventListener('input', function() { this.style.borderColor = ''; });
+
+/* ── SharePoint submit via Microsoft Graph API ── */
+async function submitToSharePoint(payload) {
+  var endpoint = 'https://graph.microsoft.com/v1.0/sites/' + SHAREPOINT_SITE_ID
+               + '/lists/' + SHAREPOINT_LIST_ID + '/items';
+
+  /* Get access token silently using MSAL implicit — works if user is signed into M365 */
+  var tokenResp = await fetch(
+    'https://login.microsoftonline.com/' + TENANT_NAME + '.onmicrosoft.com/oauth2/v2.0/token',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'client_id=common&grant_type=implicit&scope=Sites.ReadWrite.All&response_type=token'
+    }
+  );
+
+  /* Primary method: fetch with bearer token */
+  var resp = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    credentials: 'include', /* sends M365 session cookie */
+    body: JSON.stringify({ fields: payload })
+  });
+
+  if (!resp.ok) throw new Error('Graph API returned ' + resp.status);
+  return true;
+}
+
+function buildPayload(name, role) {
+  var sum = 0;
+  var now = new Date();
+  var payload = {
+    Title           : name,
+    ReviewerName    : name,
+    ReviewerRole    : role || 'Not specified',
+    SubmittedAt     : now.toISOString(),
+    OverallRating   : overallRating,
+    HighlightComment: hl.value.trim() || ''
+  };
+  var secMap = {s1:'DefectReporting',s2:'ProductKnowledge',s3:'TaskOwnership',
+                s4:'TeamCollaboration',s5:'ProductComms',s6:'TestCoverage',
+                s7:'ReleaseReadiness',s8:'TeamPlayer',s9:'ProcessImprovements',s10:'Professionalism'};
+  SECTIONS.forEach(function(s) {
+    var r = ratings[s.id] || 0;
+    sum += r;
+    payload[secMap[s.id]] = r;
+  });
+  payload['AverageScore'] = parseFloat((sum/10).toFixed(1));
+  return payload;
+}
+
+function buildMailtoFallback(name, role) {
+  var now = new Date();
+  var dateStr = now.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})
+              + ' at ' + now.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+  var sum = 0;
+  var lines = ['PEER FEEDBACK — RAJ KUMAR','React Doc Viewer | ' + dateStr,'',
+    'Reviewer : ' + name, 'Role     : ' + (role || 'Not specified'),'',
+    '─────────────────────────────','SECTION SCORES','─────────────────────────────',''];
+  SECTIONS.forEach(function(s, i) {
+    var r = ratings[s.id] || 0; sum += r;
+    var stars = ''; for(var k=0;k<r;k++) stars+='★'; for(var m=r;m<5;m++) stars+='☆';
+    lines.push((i+1)+'. '+s.tag);
+    lines.push('   Score : '+r+'/5  '+stars+'  ('+RLABELS[r-1]+')');
+    var sc = document.getElementById('ca-'+s.id).value.trim();
+    if(sc) lines.push('   Note  : '+sc);
+    lines.push('');
+  });
+  var avg = (sum/10).toFixed(1);
+  lines.push('─────────────────────────────','SUMMARY','─────────────────────────────',
+    'Average Score  : '+avg+'/5','Overall Rating : '+overallRating+'/5  ('+RLABELS[overallRating-1]+')','',
+    'HIGHLIGHT COMMENT:',hl.value.trim()||'No additional comment.','',
+    '─────────────────────────────',
+    'Submitted via Raj Kumar Peer Feedback Form.','─────────────────────────────');
+  var subject = encodeURIComponent('Peer Feedback — Raj Kumar (React Doc Viewer) from ' + name);
+  var body = encodeURIComponent(lines.join('\n'));
+  var ccPart = (typeof CC_EMAILS !== 'undefined' && CC_EMAILS) ? '&cc=' + encodeURIComponent(CC_EMAILS) : '';
+  return 'mailto:' + encodeURIComponent(MANAGER_EMAIL) + '?subject=' + subject + ccPart + '&body=' + body;
+}
+
+document.getElementById('submit-btn').addEventListener('click', async function() {
+  var name = document.getElementById('rev-name').value.trim();
+  if (!name) { document.getElementById('rev-name').style.borderColor='#b33a5c'; document.getElementById('rev-name').focus(); return; }
+  if (Object.keys(ratings).length < 10 || overallRating === 0) { alert('Please rate all 10 sections and the overall rating before submitting.'); return; }
+  var role = document.getElementById('rev-role').value;
+  document.getElementById('sending-overlay').classList.add('show');
+  document.getElementById('submit-btn').disabled = true;
+  var spSuccess = false;
+  try {
+    var payload = buildPayload(name, role);
+    await submitToSharePoint(payload);
+    spSuccess = true;
+  } catch(err) {
+    console.warn('SharePoint submit failed:', err);
+    spSuccess = false;
+  }
+  document.getElementById('sending-overlay').classList.remove('show');
+  if (!spSuccess) {
+    /* Graceful fallback to mailto */
+    window.location.href = buildMailtoFallback(name, role);
+    setTimeout(function() { showSuccess(false); }, 800);
+  } else {
+    showSuccess(true);
+  }
+});
+
+function showSuccess(spOk) {
+  var sum = 0; for(var k in ratings) sum += ratings[k];
+  var avg = (sum/10).toFixed(1);
+  document.getElementById('form-view').style.display = 'none';
+  document.getElementById('success-view').style.display = 'block';
+  document.getElementById('confirm-sp').style.display       = spOk ? 'flex' : 'none';
+  document.getElementById('confirm-fallback').style.display = spOk ? 'none' : 'flex';
+  document.getElementById('sum-metrics').innerHTML =
+    '<div class="smbox"><div class="smlbl">Average score</div><div class="smval">'+avg+'<span style="font-size:14px;color:#8895b3">/5</span></div></div>'
+   +'<div class="smbox"><div class="smlbl">Overall rating</div><div class="smval">'+overallRating+'<span style="font-size:14px;color:#8895b3">/5</span></div></div>'
+   +'<div class="smbox"><div class="smlbl">Sections rated</div><div class="smval">10<span style="font-size:14px;color:#8895b3">/10</span></div></div>';
+  var rowsHTML = '';
+  for(var j=0;j<SECTIONS.length;j++){
+    var s=SECTIONS[j]; var r=ratings[s.id]||0;
+    var col=r>=4?'#16a34a':r<=2?'#dc2626':'#6b7a99';
+    var f='',e=''; for(var k=0;k<r;k++)f+='★'; for(var m=r;m<5;m++)e+='☆';
+    rowsHTML+='<div class="srow"><span style="font-size:13px;color:#1a2744">'+s.tag+'</span>'
+             +'<span style="font-size:15px;color:'+col+';letter-spacing:1px">'+f+'<span style="color:#dde2ee">'+e+'</span></span></div>';
+  }
+  document.getElementById('sum-rows').innerHTML = rowsHTML;
+  var hlv = hl.value.trim();
+  document.getElementById('sum-quote').innerHTML = hlv ? '<div class="squote">"'+hlv+'"</div>' : '';
+}
+
+document.getElementById('reset-btn').addEventListener('click', resetForm);
+document.getElementById('new-btn').addEventListener('click', function() {
+  resetForm();
+  document.getElementById('form-view').style.display = 'block';
+  document.getElementById('success-view').style.display = 'none';
+});
+
+function resetForm() {
+  for(var k in ratings) delete ratings[k];
+  overallRating = 0;
+  for(var j=0;j<SECTIONS.length;j++){
+    var s=SECTIONS[j];
+    var btns=document.getElementById('stars-'+s.id).querySelectorAll('.star-btn');
+    for(var i=0;i<btns.length;i++) btns[i].classList.remove('lit');
+    var rl=document.getElementById('rl-'+s.id); rl.classList.remove('show'); rl.textContent='';
+    var me=document.getElementById('me-'+s.id); me.classList.remove('show','pop'); me.textContent='';
+    var mt=document.getElementById('mt-'+s.id); mt.classList.remove('show'); mt.textContent='';
+    var ca=document.getElementById('ca-'+s.id); ca.value=''; ca.style.display='none';
+    var n=document.getElementById('num-'+s.id); n.classList.remove('done'); n.textContent=s.num;
+    document.getElementById('card-'+s.id).classList.remove('rated');
+  }
+  document.getElementById('overall-stars').querySelectorAll('.o-star').forEach(function(b){b.classList.remove('lit');});
+  var om=document.getElementById('omood'); om.classList.remove('show','pop'); om.textContent='';
+  hl.value=''; document.getElementById('char-left').textContent='250';
+  document.getElementById('rev-name').value=''; document.getElementById('rev-name').style.borderColor='';
+  document.getElementById('rev-role').selectedIndex=0;
+  document.getElementById('submit-btn').disabled=false;
+  updateProgress();
+}
+
+buildSections();
+</script>
+</body>
+</html>
